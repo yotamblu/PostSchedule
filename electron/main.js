@@ -61,9 +61,10 @@ async function createWindow() {
     show: false,
   });
 
-  win.once('ready-to-show', () => win.show());
-
   const appURL = isDev ? 'http://localhost:5173' : null;
+
+  // Show only after the page has actually painted — prevents the black flash
+  win.webContents.once('did-finish-load', () => win.show());
 
   if (isDev) {
     try {
