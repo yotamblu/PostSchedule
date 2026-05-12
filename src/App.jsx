@@ -1,44 +1,43 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-// ── Schedule helpers ─────────────────────────────────────
+// ── Date helpers ─────────────────────────────────────────────
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function tomorrowStr() { const d = new Date(); d.setDate(d.getDate()+1); return localDateStr(d); }
+function todayStr()    { return localDateStr(new Date()); }
+
+// ── Schedule helpers ─────────────────────────────────────────
 function nonRoundMinute() {
   const pool = [];
   for (let i = 0; i < 60; i++) if (i % 5 !== 0) pool.push(i);
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-function buildSchedule(n) {
-  const MAX = 23 * 60 + 30; // 23:30
-
-  // Start between 03:00 and 05:00 with a non-round minute
-  const start = (3 + Math.floor(Math.random() * 2)) * 60 + nonRoundMinute();
+function buildSchedule(n, winStart = 180, winEnd = 1410) {
+  // winStart / winEnd are minutes from midnight (e.g. 180 = 03:00)
+  const maxOffset = Math.min(20, Math.floor((winEnd - winStart) * 0.03));
+  let start = winStart + (maxOffset > 0 ? Math.floor(Math.random() * maxOffset) : 0);
+  if (start % 5 === 0) start += 1 + Math.floor(Math.random() * 4);
+  start = Math.min(start, winEnd - 1);
 
   if (n === 1) return { times: [start] };
 
-  const totalSpan = MAX - start;
-
-  // Generate n-1 random weights (0.5–1.5 range = up to ±33% variation per gap)
-  // then normalise so they sum exactly to totalSpan.
-  // This guarantees every post fits while still looking organic.
-  const weights = Array.from({ length: n - 1 }, () => 0.5 + Math.random());
-  const weightSum = weights.reduce((a, b) => a + b, 0);
-  const gaps = weights.map(w => (w / weightSum) * totalSpan);
+  const totalSpan = winEnd - start;
+  const weights   = Array.from({ length: n - 1 }, () => 0.5 + Math.random());
+  const wSum      = weights.reduce((a, b) => a + b, 0);
+  const gaps      = weights.map(w => (w / wSum) * totalSpan);
 
   const times = [start];
-  let cursor = start;
+  let cursor  = start;
 
   for (let i = 0; i < n - 1; i++) {
     cursor += gaps[i];
     let t = Math.round(cursor);
-
-    // Nudge the minute portion to be non-round (not a multiple of 5)
     if (t % 60 % 5 === 0) t += 1 + Math.floor(Math.random() * 4);
-
-    // Keep strictly increasing and within the window
     const prev = times[times.length - 1];
     if (t <= prev) t = prev + 1;
-    t = Math.min(t, MAX);
-
+    t = Math.min(t, winEnd);
     times.push(t);
     cursor = t;
   }
@@ -46,6 +45,7 @@ function buildSchedule(n) {
   return { times };
 }
 
+// ── Formatting ───────────────────────────────────────────────
 function fmt12(m) {
   const h = Math.floor(m / 60), mn = m % 60;
   const p = h < 12 ? 'AM' : 'PM';
@@ -60,7 +60,7 @@ function parsePosts(raw) {
   return raw.split(/^---$/m).map(s => s.trim()).filter(Boolean);
 }
 
-// ── Clipboard ────────────────────────────────────────────
+// ── Clipboard ────────────────────────────────────────────────
 async function copyToClipboard(text) {
   try { await navigator.clipboard.writeText(text); }
   catch {
@@ -69,20 +69,19 @@ async function copyToClipboard(text) {
   }
 }
 
-// ── Icons ────────────────────────────────────────────────
+// ── Icons ────────────────────────────────────────────────────
 const XIcon = ({ size = 16 }) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor">
     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
   </svg>
 );
-
 const RegenIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
     <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
   </svg>
 );
 
-// ── CopyButton ───────────────────────────────────────────
+// ── CopyButton ───────────────────────────────────────────────
 function CopyButton({ text, label = 'Copy text', className = 'btn-copy' }) {
   const [copied, setCopied] = useState(false);
   const handle = async () => {
@@ -97,7 +96,48 @@ function CopyButton({ text, label = 'Copy text', className = 'btn-copy' }) {
   );
 }
 
-// ── StatusChip ───────────────────────────────────────────
+// ── Toggle ───────────────────────────────────────────────────
+function Toggle({ value, onChange }) {
+  return (
+    <button className={`toggle-switch${value ? ' on' : ''}`} onClick={() => onChange(!value)}>
+      <span className="toggle-track"><span className="toggle-thumb" /></span>
+      <span className="toggle-val">{value ? 'On' : 'Off'}</span>
+    </button>
+  );
+}
+
+// ── Dual Range Slider ────────────────────────────────────────
+function DualRangeSlider({ start, end, onChange }) {
+  const MIN = 0, MAX = 1440, STEP = 15, MIN_GAP = 60;
+  const startPct = (start / MAX) * 100;
+  const endPct   = (end   / MAX) * 100;
+
+  return (
+    <div className="dslider">
+      <div className="dslider-track">
+        <div className="dslider-fill" style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }} />
+      </div>
+
+      <input type="range" className="dslider-input"
+        min={MIN} max={MAX - MIN_GAP} step={STEP} value={start}
+        style={{ zIndex: start > MAX * 0.9 ? 5 : 3 }}
+        onChange={e => onChange(Math.min(+e.target.value, end - MIN_GAP), end)}
+      />
+      <input type="range" className="dslider-input"
+        min={MIN + MIN_GAP} max={MAX} step={STEP} value={end}
+        style={{ zIndex: 4 }}
+        onChange={e => onChange(start, Math.max(+e.target.value, start + MIN_GAP))}
+      />
+
+      <div className="dslider-labels">
+        <div className="dslider-label" style={{ left: `${startPct}%` }}>{fmt12(start)}</div>
+        <div className="dslider-label" style={{ left: `${endPct}%`   }}>{fmt12(end)}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── StatusChip ───────────────────────────────────────────────
 function StatusChip({ status }) {
   if (!status || status === 'idle') return null;
   const labels = { scheduling: 'Scheduling…', done: '✓ Scheduled', error: '✗ Error' };
@@ -109,7 +149,7 @@ function StatusChip({ status }) {
   );
 }
 
-// ── PostCard ─────────────────────────────────────────────
+// ── PostCard ─────────────────────────────────────────────────
 function PostCard({ post, time, index, total, status, errorMsg, animDelay }) {
   const chars  = post.length;
   const isOver = chars > 280;
@@ -122,10 +162,8 @@ function PostCard({ post, time, index, total, status, errorMsg, animDelay }) {
   const t24    = fmt24(time);
 
   return (
-    <div
-      className={`post-card${status && status !== 'idle' ? ` status-${status}` : ''}`}
-      style={{ animationDelay: `${animDelay}s` }}
-    >
+    <div className={`post-card${status && status !== 'idle' ? ` status-${status}` : ''}`}
+         style={{ animationDelay: `${animDelay}s` }}>
       <div className="card-ghost">{idx}</div>
       <div className="card-body">
 
@@ -147,9 +185,7 @@ function PostCard({ post, time, index, total, status, errorMsg, animDelay }) {
         </div>
 
         <hr className="card-rule" />
-
         {errorMsg && <div className="card-error-msg">{errorMsg}</div>}
-
         <div className="card-post-text">{post}</div>
 
         <div className="card-footer">
@@ -166,20 +202,26 @@ function PostCard({ post, time, index, total, status, errorMsg, animDelay }) {
   );
 }
 
-// ── App ──────────────────────────────────────────────────
+// ── App ──────────────────────────────────────────────────────
 export default function App() {
-  const [rawInput,    setRawInput]    = useState('');
-  const [posts,       setPosts]       = useState([]);
-  const [times,       setTimes]       = useState([]);
-  const [statuses,    setStatuses]    = useState([]); // 'idle'|'scheduling'|'done'|'error'
-  const [errorMsgs,   setErrorMsgs]   = useState([]);
-  const [hasSession,  setHasSession]  = useState(null); // null = loading
-  const [scheduling,  setScheduling]  = useState(false);
-  const [schedDone,   setSchedDone]   = useState(false);
-  const [schedError,  setSchedError]  = useState('');
+  const [rawInput,     setRawInput]     = useState('');
+  const [posts,        setPosts]        = useState([]);
+  const [times,        setTimes]        = useState([]);
+  const [statuses,     setStatuses]     = useState([]);
+  const [errorMsgs,    setErrorMsgs]    = useState([]);
+  const [hasSession,   setHasSession]   = useState(null);
+  const [scheduling,   setScheduling]   = useState(false);
+  const [schedDone,    setSchedDone]    = useState(false);
+  const [schedError,   setSchedError]   = useState('');
+
+  // ── Settings state ──
+  const [autoSchedule,  setAutoSchedule]  = useState(true);          // press Schedule automatically
+  const [rangeStart,    setRangeStart]    = useState(3  * 60);       // 03:00 AM
+  const [rangeEnd,      setRangeEnd]      = useState(23 * 60 + 30);  // 11:30 PM
+  const [scheduleDate,  setScheduleDate]  = useState(tomorrowStr);
+
   const cardsRef = useRef(null);
 
-  // ── Check session on mount ──
   useEffect(() => {
     fetch('/api/health')
       .then(r => r.json())
@@ -187,13 +229,12 @@ export default function App() {
       .catch(() => setHasSession(false));
   }, []);
 
-  // ── Live parse ──
   const parsedPosts = parsePosts(rawInput);
   const postCount   = parsedPosts.length;
 
   // ── Generate schedule ──
-  const generate = useCallback((postList) => {
-    const { times: t } = buildSchedule(postList.length);
+  const generate = useCallback((postList, wStart, wEnd) => {
+    const { times: t } = buildSchedule(postList.length, wStart, wEnd);
     setPosts(postList);
     setTimes(t);
     setStatuses(postList.map(() => 'idle'));
@@ -201,23 +242,29 @@ export default function App() {
     return t;
   }, []);
 
-  // ── Regenerate (times only) ──
+  // ── Regenerate ──
   const handleRegenerate = useCallback(() => {
     if (!posts.length) return;
-    const { times: t } = buildSchedule(posts.length);
+    const { times: t } = buildSchedule(posts.length, rangeStart, rangeEnd);
     setTimes(t);
     setStatuses(posts.map(() => 'idle'));
     setErrorMsgs(posts.map(() => ''));
     setSchedDone(false);
     setSchedError('');
-  }, [posts]);
+  }, [posts, rangeStart, rangeEnd]);
 
-  // ── Schedule all via Playwright ──
+  // ── Handle slider change ──
+  const handleRangeChange = useCallback((s, e) => {
+    setRangeStart(s);
+    setRangeEnd(e);
+  }, []);
+
+  // ── Schedule all ──
   const handleScheduleAll = useCallback(async () => {
     const postList = parsePosts(rawInput);
     if (!postList.length) return;
 
-    const scheduledTimes = generate(postList);
+    const scheduledTimes = generate(postList, rangeStart, rangeEnd);
     setScheduling(true);
     setSchedDone(false);
     setSchedError('');
@@ -228,7 +275,12 @@ export default function App() {
       const res = await fetch('/api/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ posts: postList, times: scheduledTimes }),
+        body: JSON.stringify({
+          posts: postList,
+          times: scheduledTimes,
+          autoSchedule,
+          scheduleDate,
+        }),
       });
 
       if (!res.ok) {
@@ -246,28 +298,17 @@ export default function App() {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE lines
         const lines = buffer.split('\n');
-        buffer = lines.pop(); // keep incomplete line
+        buffer = lines.pop();
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           try {
             const ev = JSON.parse(line.slice(6));
-
             if (ev.type === 'progress') {
-              setStatuses(prev => {
-                const next = [...prev];
-                next[ev.index] = ev.status;
-                return next;
-              });
+              setStatuses(prev => { const n = [...prev]; n[ev.index] = ev.status; return n; });
               if (ev.status === 'error') {
-                setErrorMsgs(prev => {
-                  const next = [...prev];
-                  next[ev.index] = ev.message || 'Unknown error';
-                  return next;
-                });
+                setErrorMsgs(prev => { const n = [...prev]; n[ev.index] = ev.message || 'Unknown error'; return n; });
               }
             } else if (ev.type === 'complete') {
               setSchedDone(true);
@@ -276,47 +317,45 @@ export default function App() {
               setSchedError(ev.message);
               setScheduling(false);
             }
-          } catch { /* malformed SSE line */ }
+          } catch { /* ignore malformed SSE */ }
         }
       }
     } catch (err) {
       setSchedError(err.message);
       setScheduling(false);
     }
-  }, [rawInput, generate]);
+  }, [rawInput, generate, rangeStart, rangeEnd, autoSchedule, scheduleDate]);
 
-  // ── Progress stats ──
   const doneCount  = statuses.filter(s => s === 'done').length;
   const errorCount = statuses.filter(s => s === 'error').length;
   const totalCount = posts.length;
-  const pct = totalCount ? Math.round(((doneCount + errorCount) / totalCount) * 100) : 0;
+  const progPct    = totalCount ? Math.round(((doneCount + errorCount) / totalCount) * 100) : 0;
 
   return (
     <>
       <div className="bg-layer" />
-
       <div className="page">
 
-        {/* ── Header ── */}
+        {/* Header */}
         <header className="header">
           <div className="logo-row">
-            <div className="logo-mark"><img src="/logo.png" alt="PostSchedule" style={{ width: 26, height: 26, objectFit: 'contain', borderRadius: 4 }} /></div>
+            <div className="logo-mark">
+              <img src="/logo.png" alt="PostSchedule" style={{ width: 26, height: 26, objectFit: 'contain', borderRadius: 4 }} />
+            </div>
             <span className="logo-name">PostSchedule</span>
           </div>
           <p className="header-tagline">Generate organic-looking schedules that never look pre-planned.</p>
         </header>
 
-        {/* ── Auth notice ── */}
+        {/* Auth notice */}
         {hasSession === false && (
           <div className="auth-notice">
             <span>⚠</span>
-            <span>
-              Session file not found at <code>Auto-X/session.json</code>. Check that the file exists and restart the server.
-            </span>
+            <span>Session file not found at <code>Auto-X/session.json</code>. Check that the file exists and restart.</span>
           </div>
         )}
 
-        {/* ── Input Panel ── */}
+        {/* Input Panel */}
         <div className="input-panel">
           <div className="input-panel-header">
             <span className="input-label">Your Posts</span>
@@ -324,27 +363,53 @@ export default function App() {
               {postCount === 0 ? '0 posts' : postCount === 1 ? '1 post' : `${postCount} posts`}
             </span>
           </div>
-
           <textarea
             value={rawInput}
             onChange={e => setRawInput(e.target.value)}
             disabled={scheduling}
             placeholder={
               'Paste your posts here, separated by --- on its own line\n\n' +
-              'This is your first post. Write whatever you want.\n' +
-              '---\n' +
-              'And here is the second one. The scheduler will space them out naturally.\n' +
-              '---\n' +
-              'Third post here...'
+              'This is your first post.\n---\nSecond post here.\n---\nThird post here...'
             }
           />
-
-          <p className="input-hint">
-            Separate each post with <code>---</code> on its own line
-          </p>
+          <p className="input-hint">Separate each post with <code>---</code> on its own line</p>
         </div>
 
-        {/* ── Actions ── */}
+        {/* ── Settings Panel ── */}
+        <div className="settings-panel">
+
+          {/* Row 1: Date + Auto-schedule toggle */}
+          <div className="settings-row">
+            <div className="settings-field">
+              <span className="settings-label">Date</span>
+              <input
+                type="date"
+                className="date-input"
+                value={scheduleDate}
+                min={todayStr()}
+                onChange={e => setScheduleDate(e.target.value)}
+              />
+            </div>
+
+            <div className="settings-field settings-field-right">
+              <span className="settings-label">Press Schedule</span>
+              <Toggle value={autoSchedule} onChange={setAutoSchedule} />
+            </div>
+          </div>
+
+          {/* Row 2: Posting window slider */}
+          <div className="settings-field" style={{ marginTop: 20 }}>
+            <span className="settings-label">Posting window</span>
+            <DualRangeSlider
+              start={rangeStart}
+              end={rangeEnd}
+              onChange={handleRangeChange}
+            />
+          </div>
+
+        </div>
+
+        {/* Actions */}
         <div className="action-row">
           <button
             className="btn-primary"
@@ -352,7 +417,9 @@ export default function App() {
             disabled={scheduling || postCount === 0 || hasSession === false}
           >
             <XIcon size={16} />
-            {scheduling ? 'Opening composers…' : 'Open All Composers'}
+            {scheduling
+              ? (autoSchedule ? 'Scheduling…' : 'Opening composers…')
+              : (autoSchedule ? 'Schedule All Posts' : 'Open All Composers')}
           </button>
 
           {posts.length > 0 && (
@@ -363,38 +430,39 @@ export default function App() {
           )}
         </div>
 
-
-        {/* ── Scheduling progress ── */}
+        {/* Progress */}
         {scheduling && totalCount > 0 && (
           <div className="progress-banner">
             <span className="spinner" style={{ width: 14, height: 14 }} />
-            <span>Opening composer {doneCount + errorCount + 1} of {totalCount}…</span>
+            <span>
+              {autoSchedule ? 'Scheduling' : 'Opening'} {doneCount + errorCount + 1} of {totalCount}…
+            </span>
             <div className="progress-bar-track">
-              <div className="progress-bar-fill" style={{ width: `${pct}%` }} />
+              <div className="progress-bar-fill" style={{ width: `${progPct}%` }} />
             </div>
           </div>
         )}
 
-        {/* ── Done banner ── */}
+        {/* Done */}
         {schedDone && !scheduling && (
           <div className="banner banner-info">
             <span>✓</span>
             <span>
-              {doneCount} tab{doneCount !== 1 ? 's' : ''} ready
-              {errorCount > 0 ? `, ${errorCount} failed (see cards below)` : ''}.
-              Each composer has the time pre-filled — review each post and click <strong style={{ color: '#93c5fd' }}>Schedule</strong>.
+              {doneCount} post{doneCount !== 1 ? 's' : ''} {autoSchedule ? 'scheduled' : 'ready for review'}
+              {errorCount > 0 ? `, ${errorCount} failed` : ''}.
+              {!autoSchedule && <> Review each tab and click <strong style={{ color: '#93c5fd' }}>Schedule</strong>.</>}
             </span>
           </div>
         )}
 
-        {/* ── Error banner ── */}
+        {/* Error */}
         {schedError && (
           <div className="banner banner-error">
             <span>✗</span><span>{schedError}</span>
           </div>
         )}
 
-        {/* ── Cards ── */}
+        {/* Cards */}
         <div ref={cardsRef} className="cards-wrap">
           {posts.map((post, i) => i < times.length && (
             <PostCard
@@ -410,10 +478,9 @@ export default function App() {
           ))}
         </div>
 
-        {/* ── Empty state ── */}
         {posts.length === 0 && (
           <div className="empty-state">
-            Paste your posts above and click <strong>Schedule All with Playwright</strong>
+            Paste your posts above and click <strong>Schedule All Posts</strong>
           </div>
         )}
 

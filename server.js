@@ -21,7 +21,7 @@ app.get('/api/health', (_req, res) => {
 
 // ── Schedule endpoint (SSE) ──────────────────────────────────
 app.post('/api/schedule', async (req, res) => {
-  const { posts, times } = req.body;
+  const { posts, times, autoSchedule = false, scheduleDate } = req.body;
 
   if (!Array.isArray(posts) || !Array.isArray(times) || posts.length === 0) {
     return res.status(400).json({ error: 'Invalid payload.' });
@@ -76,7 +76,7 @@ app.post('/api/schedule', async (req, res) => {
       send({ type: 'progress', index: i, status: 'scheduling' });
 
       try {
-        await openAndPrefill(ctx, posts[i], times[i]);
+        await openAndPrefill(ctx, posts[i], times[i], autoSchedule, scheduleDate);
         send({ type: 'progress', index: i, status: 'done' });
       } catch (err) {
         console.error(`[Post ${i + 1}] ${err.message}`);
@@ -114,17 +114,24 @@ app.post('/api/schedule', async (req, res) => {
 // fills the text, opens the schedule dialog, sets the date/time from the DOM
 // (SELECTOR_1 … SELECTOR_6), and clicks Confirm.  The tab stays open so
 // the user can review the post and click Schedule themselves.
-async function openAndPrefill(ctx, text, totalMins) {
+async function openAndPrefill(ctx, text, totalMins, autoSchedule = false, scheduleDate = null) {
   // ── Time math ────────────────────────────────────────────
   const h24  = Math.floor(totalMins / 60);
   const mins = totalMins % 60;
 
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  // Parse scheduleDate ('YYYY-MM-DD') or fall back to tomorrow
+  let dateObj;
+  if (scheduleDate) {
+    const [y, m, d] = scheduleDate.split('-').map(Number);
+    dateObj = new Date(y, m - 1, d);
+  } else {
+    dateObj = new Date();
+    dateObj.setDate(dateObj.getDate() + 1);
+  }
   // DOM option values: "1"–"12" for month, "1"–"31" for day, "2026" etc. for year
-  const month = String(tomorrow.getMonth() + 1);
-  const day   = String(tomorrow.getDate());
-  const year  = String(tomorrow.getFullYear());
+  const month = String(dateObj.getMonth() + 1);
+  const day   = String(dateObj.getDate());
+  const year  = String(dateObj.getFullYear());
 
   // ── Open compose in a dedicated tab ──────────────────────
   // Navigating directly to /compose/post means there is only one textarea
@@ -168,13 +175,17 @@ async function openAndPrefill(ctx, text, totalMins) {
   }
 
   // ── Confirm the scheduled time ────────────────────────────
-  // Confirmed from live DOM: data-testid="scheduledConfirmationPrimaryAction"
   await page.locator('[data-testid="scheduledConfirmationPrimaryAction"]').click();
 
-  // Small wait for the dialog to close and the compose view to update
+  // Wait for the dialog to close and the compose view to update
   await page.waitForTimeout(600);
 
-  // Tab stays open — user reviews the post and clicks "Schedule"
+  // ── Optionally press the final Schedule button ────────────
+  if (autoSchedule) {
+    await page.locator('[data-testid="tweetButtonInline"]').click();
+    await page.waitForTimeout(500);
+  }
+  // Tab stays open — user can review (or see the confirmation)
 }
 
 const PORT = 3001;
