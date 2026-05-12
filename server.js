@@ -182,7 +182,7 @@ async function openAndPrefill(ctx, text, totalMins, autoSchedule = false, schedu
 
   // ── Optionally press the final Schedule button ────────────
   if (autoSchedule) {
-    await page.locator('[data-testid="tweetButtonInline"]').click();
+    await page.locator('[data-testid="tweetButton"]').click();
     await page.waitForTimeout(500);
   }
   // Tab stays open — user can review (or see the confirmation)
