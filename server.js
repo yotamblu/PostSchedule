@@ -143,8 +143,8 @@ async function openAndPrefill(ctx, text, totalMins, autoSchedule = false, schedu
   // ── Fill post text ────────────────────────────────────────
   const editor = page.locator('[data-testid="tweetTextarea_0"]').first();
   await editor.waitFor({ timeout: 12000 });
-  await editor.click();
-  // Use keyboard.type for contenteditable DraftJS editor reliability
+  // force:true bypasses the mask overlay that X renders behind the compose dialog
+  await editor.click({ force: true });
   await page.keyboard.type(text, { delay: 0 });
 
   // ── Open schedule dialog ──────────────────────────────────
