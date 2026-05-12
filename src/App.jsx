@@ -408,7 +408,7 @@ export default function App() {
         <header className="header">
           <div className="logo-row">
             <div className="logo-mark">
-              <img src="/logo.png" alt="PostSchedule" style={{ width: 26, height: 26, objectFit: 'contain', borderRadius: 4 }} />
+              <img src="./logo.png" alt="PostSchedule" style={{ width: 26, height: 26, objectFit: 'contain', borderRadius: 4 }} />
             </div>
             <span className="logo-name">PostSchedule</span>
           </div>
