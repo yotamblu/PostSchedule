@@ -382,7 +382,7 @@ export default function App() {
             <span>
               {doneCount} tab{doneCount !== 1 ? 's' : ''} ready
               {errorCount > 0 ? `, ${errorCount} failed (see cards below)` : ''}.
-              Each composer has the time pre-filled — review each post and click <strong style="color:#93c5fd;">Schedule</strong>.
+              Each composer has the time pre-filled — review each post and click <strong style={{ color: '#93c5fd' }}>Schedule</strong>.
             </span>
           </div>
         )}
