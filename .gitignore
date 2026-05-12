@@ -4,3 +4,4 @@ out/
 x-session.json
 *.local
 PostScheduler_logo
+launcher.bat
