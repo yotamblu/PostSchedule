@@ -4,7 +4,8 @@ const path  = require('path');
 const fs    = require('fs');
 
 const app          = express();
-const SESSION_FILE = 'C:\\Users\\yotam\\Desktop\\Auto-X\\session.json';
+// Path set by electron/main.js via env var; falls back to legacy dev path
+const SESSION_FILE = process.env.SESSION_FILE || 'C:\\Users\\yotam\\Desktop\\Auto-X\\session.json';
 const DIST_DIR     = path.join(__dirname, 'dist');
 
 app.use(express.json({ limit: '10mb' }));

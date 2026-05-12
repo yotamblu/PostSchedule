@@ -202,6 +202,65 @@ function PostCard({ post, time, index, total, status, errorMsg, animDelay }) {
   );
 }
 
+// ── Auth Panel ───────────────────────────────────────────────
+function AuthPanel({ hasSession, onAuthDone }) {
+  const [authState, setAuthState] = useState('idle'); // idle | opening | done | failed
+
+  const handleSignIn = async () => {
+    if (!window.electronAPI?.startAuth) return;
+    setAuthState('opening');
+    const result = await window.electronAPI.startAuth();
+    if (result?.ok) {
+      setAuthState('done');
+      onAuthDone(true);
+    } else {
+      setAuthState('idle');
+    }
+  };
+
+  const handleSignOut = async () => {
+    await window.electronAPI?.signOut();
+    onAuthDone(false);
+  };
+
+  if (hasSession === null) return null; // still loading
+
+  if (hasSession) {
+    return (
+      <div className="auth-panel auth-panel-ok">
+        <span className="auth-ok-dot" />
+        <span className="auth-ok-label">Connected to X</span>
+        <button className="auth-signout-btn" onClick={handleSignOut}>Sign out</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="auth-panel auth-panel-warn">
+      {authState === 'opening' ? (
+        <>
+          <span className="spinner" style={{ width: 13, height: 13, flexShrink: 0 }} />
+          <div className="auth-opening-text">
+            <strong>X login window opened</strong>
+            <span>Sign in using any method — email, Google, or Apple. The window will close automatically when done.</span>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="auth-warn-text">
+            <strong>Not connected to X</strong>
+            <span>Sign in once to let PostSchedule schedule posts on your behalf.</span>
+          </div>
+          <button className="btn-signin" onClick={handleSignIn}>
+            <XIcon size={14} />
+            Sign in to X
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── App ──────────────────────────────────────────────────────
 export default function App() {
   const [rawInput,     setRawInput]     = useState('');
@@ -215,19 +274,21 @@ export default function App() {
   const [schedError,   setSchedError]   = useState('');
 
   // ── Settings state ──
-  const [autoSchedule,  setAutoSchedule]  = useState(true);          // press Schedule automatically
-  const [rangeStart,    setRangeStart]    = useState(3  * 60);       // 03:00 AM
-  const [rangeEnd,      setRangeEnd]      = useState(23 * 60 + 30);  // 11:30 PM
+  const [autoSchedule,  setAutoSchedule]  = useState(true);
+  const [rangeStart,    setRangeStart]    = useState(3  * 60);
+  const [rangeEnd,      setRangeEnd]      = useState(23 * 60 + 30);
   const [scheduleDate,  setScheduleDate]  = useState(tomorrowStr);
 
   const cardsRef = useRef(null);
 
-  useEffect(() => {
+  const refreshSession = useCallback(() => {
     fetch('/api/health')
       .then(r => r.json())
       .then(d => setHasSession(d.hasSession))
       .catch(() => setHasSession(false));
   }, []);
+
+  useEffect(() => { refreshSession(); }, [refreshSession]);
 
   const parsedPosts = parsePosts(rawInput);
   const postCount   = parsedPosts.length;
@@ -347,13 +408,8 @@ export default function App() {
           <p className="header-tagline">Generate organic-looking schedules that never look pre-planned.</p>
         </header>
 
-        {/* Auth notice */}
-        {hasSession === false && (
-          <div className="auth-notice">
-            <span>⚠</span>
-            <span>Session file not found at <code>Auto-X/session.json</code>. Check that the file exists and restart.</span>
-          </div>
-        )}
+        {/* Auth panel */}
+        <AuthPanel hasSession={hasSession} onAuthDone={refreshSession} />
 
         {/* Input Panel */}
         <div className="input-panel">
@@ -414,7 +470,7 @@ export default function App() {
           <button
             className="btn-primary"
             onClick={handleScheduleAll}
-            disabled={scheduling || postCount === 0 || hasSession === false}
+            disabled={scheduling || postCount === 0 || !hasSession}
           >
             <XIcon size={16} />
             {scheduling

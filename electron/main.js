@@ -1,13 +1,23 @@
 'use strict';
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, session } = require('electron');
 const path = require('path');
+const fs   = require('fs');
 
 const isDev = process.env.NODE_ENV === 'development';
 
-// ── Start the Express + Playwright backend ───────────────────
-// Only start the server if port 3001 isn't already occupied
-// (guards against running electron-dev while npm run dev is still up).
+// ── Session file path ─────────────────────────────────────────────────────────
+// Saved in the OS app-data dir so it's user-scoped and not world-readable.
+// In dev, fall back to the legacy path if it already exists there.
+const LEGACY_SESSION = 'C:\\Users\\yotam\\Desktop\\Auto-X\\session.json';
+const SESSION_FILE = (() => {
+  if (isDev && fs.existsSync(LEGACY_SESSION)) return LEGACY_SESSION;
+  return path.join(app.getPath('userData'), 'x-session.json');
+})();
+// Expose to server.js (required after this point)
+process.env.SESSION_FILE = SESSION_FILE;
+
+// ── Start the Express + Playwright backend ────────────────────────────────────
 const net = require('net');
 function startServerIfNeeded() {
   return new Promise((resolve) => {
@@ -26,7 +36,7 @@ function startServerIfNeeded() {
 }
 startServerIfNeeded();
 
-// ── Wait for Vite dev server then load ──────────────────────
+// ── Wait for Vite dev server ──────────────────────────────────────────────────
 function waitForVite(url, retries = 30, interval = 500) {
   return new Promise((resolve, reject) => {
     const http = require('http');
@@ -41,7 +51,110 @@ function waitForVite(url, retries = 30, interval = 500) {
   });
 }
 
-// ── Create the main window ───────────────────────────────────
+// ── Auth IPC handlers ─────────────────────────────────────────────────────────
+function registerAuthHandlers() {
+  ipcMain.handle('auth:status', () => ({
+    hasSession: fs.existsSync(SESSION_FILE),
+  }));
+
+  ipcMain.handle('auth:signout', () => {
+    try { fs.unlinkSync(SESSION_FILE); } catch { /* already gone */ }
+    return { ok: true };
+  });
+
+  ipcMain.handle('auth:start', () => {
+    return new Promise((resolve) => {
+      // Isolated in-memory partition — we extract cookies ourselves and write them
+      // to SESSION_FILE in Playwright storageState format.
+      const authPartition = session.fromPartition('auth-flow', { cache: false });
+
+      const authWin = new BrowserWindow({
+        width:  1000,
+        height: 780,
+        title:  'Sign in to X — PostSchedule',
+        autoHideMenuBar: true,
+        webPreferences: {
+          session: authPartition,
+          nodeIntegration: false,
+          contextIsolation: true,
+          // No preload — this is a plain browser window for the user
+        },
+      });
+
+      authWin.loadURL('https://x.com/i/flow/login');
+
+      // Allow Google / Apple OAuth popups to open in the same partition
+      authWin.webContents.setWindowOpenHandler(({ url }) => ({
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+          webPreferences: {
+            session: authPartition,
+            nodeIntegration: false,
+            contextIsolation: true,
+          },
+        },
+      }));
+
+      let settled = false;
+
+      const finish = async (loggedIn) => {
+        if (settled) return;
+        settled = true;
+
+        if (loggedIn) {
+          // Grab all cookies from the auth partition
+          const all = await authPartition.cookies.get({});
+          const relevant = all.filter(c =>
+            c.domain.includes('x.com') || c.domain.includes('twitter.com')
+          );
+
+          // Electron sameSite → Playwright sameSite
+          const sameSiteMap = { strict: 'Strict', lax: 'Lax', no_restriction: 'None' };
+
+          const cookies = relevant.map(c => ({
+            name:     c.name,
+            value:    c.value,
+            domain:   c.domain.startsWith('.') ? c.domain : `.${c.domain}`,
+            path:     c.path  || '/',
+            expires:  c.expirationDate != null ? Math.floor(c.expirationDate) : -1,
+            httpOnly: c.httpOnly || false,
+            secure:   c.secure   || false,
+            sameSite: sameSiteMap[c.sameSite] || 'None',
+          }));
+
+          // Write Playwright storageState
+          const dir = path.dirname(SESSION_FILE);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(SESSION_FILE, JSON.stringify({ cookies, origins: [] }, null, 2), {
+            mode: 0o600, // owner-read/write only
+          });
+        }
+
+        if (!authWin.isDestroyed()) authWin.close();
+        resolve({ ok: loggedIn });
+      };
+
+      // Poll for auth_token cookie — set by X after any login method (email, Google, Apple)
+      const poll = setInterval(async () => {
+        if (settled) { clearInterval(poll); return; }
+        const found = await authPartition.cookies.get({ name: 'auth_token' });
+        if (found.some(c => c.domain.includes('x.com') || c.domain.includes('twitter.com'))) {
+          clearInterval(poll);
+          // Small grace period so all post-login cookies are written
+          setTimeout(() => finish(true), 1200);
+        }
+      }, 1500);
+
+      authWin.on('closed', () => {
+        clearInterval(poll);
+        finish(false);
+      });
+    });
+  });
+}
+
+// ── Create the main window ────────────────────────────────────────────────────
 async function createWindow() {
   const win = new BrowserWindow({
     width:     1160,
@@ -57,30 +170,21 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
     autoHideMenuBar: true,
-    // Show window only once content is ready — prevents the blank flash
     show: false,
   });
 
   const appURL = isDev ? 'http://localhost:5173' : null;
 
-  // Show only after the page has actually painted — prevents the black flash
   win.webContents.once('did-finish-load', () => win.show());
 
   if (isDev) {
-    try {
-      await waitForVite(appURL);
-    } catch (e) {
-      console.error('[Electron] Vite did not start in time:', e.message);
-    }
+    try { await waitForVite(appURL); }
+    catch (e) { console.error('[Electron] Vite did not start in time:', e.message); }
     win.loadURL(appURL);
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  // ── Block any navigation away from the app ────────────────
-  // Vite's HMR WebSocket can drop when Playwright's Chromium
-  // launches alongside Electron, causing a blank reconnect screen.
-  // Intercept and reload instead.
   win.webContents.on('will-navigate', (event, url) => {
     const isAppURL = isDev
       ? url.startsWith('http://localhost:5173')
@@ -91,9 +195,8 @@ async function createWindow() {
     }
   });
 
-  // If the page fails to load (e.g. HMR dropped), reload after 1s
-  win.webContents.on('did-fail-load', (_e, code, _desc, url) => {
-    if (code === -3) return; // -3 = aborted, harmless
+  win.webContents.on('did-fail-load', (_e, code) => {
+    if (code === -3) return;
     console.log(`[Electron] Page failed to load (${code}), reloading…`);
     setTimeout(() => {
       if (!win.isDestroyed()) {
@@ -102,7 +205,6 @@ async function createWindow() {
     }, 1000);
   });
 
-  // If the renderer crashes, reload
   win.webContents.on('render-process-gone', (_e, details) => {
     console.error('[Electron] Renderer gone:', details.reason);
     if (!win.isDestroyed()) {
@@ -112,7 +214,6 @@ async function createWindow() {
     }
   });
 
-  // Open target="_blank" links in the system browser
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
@@ -120,6 +221,7 @@ async function createWindow() {
 }
 
 app.whenReady().then(() => {
+  registerAuthHandlers();
   createWindow();
 
   app.on('activate', () => {
@@ -128,6 +230,5 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  // On macOS apps stay active until Cmd+Q
   if (process.platform !== 'darwin') app.quit();
 });

@@ -1,3 +1,8 @@
 'use strict';
-// Preload runs in the renderer with Node access disabled.
-// Nothing to expose for now — the React app talks to Express via fetch/SSE.
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  startAuth:  ()         => ipcRenderer.invoke('auth:start'),
+  authStatus: ()         => ipcRenderer.invoke('auth:status'),
+  signOut:    ()         => ipcRenderer.invoke('auth:signout'),
+});
