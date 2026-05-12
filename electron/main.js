@@ -6,9 +6,25 @@ const path = require('path');
 const isDev = process.env.NODE_ENV === 'development';
 
 // ── Start the Express + Playwright backend ───────────────────
-// Require server.js so the Express API comes up in the same process.
-// It listens on port 3001; the renderer proxies /api/* to it.
-require('../server.js');
+// Only start the server if port 3001 isn't already occupied
+// (guards against running electron-dev while npm run dev is still up).
+const net = require('net');
+function startServerIfNeeded() {
+  return new Promise((resolve) => {
+    const tester = net.createConnection({ port: 3001, host: '127.0.0.1' });
+    tester.once('connect', () => {
+      tester.destroy();
+      console.log('[Electron] Port 3001 already in use — skipping server start.');
+      resolve();
+    });
+    tester.once('error', () => {
+      tester.destroy();
+      require('../server.js');
+      resolve();
+    });
+  });
+}
+startServerIfNeeded();
 
 // ── Create the main window ───────────────────────────────────
 function createWindow() {

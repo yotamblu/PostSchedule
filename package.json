@@ -4,11 +4,9 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "dev":           "concurrently -n \"vite,api\" -c \"cyan,green\" \"vite\" \"node server.js\"",
-    "electron-dev":  "cross-env NODE_ENV=development concurrently -n \"vite,electron\" -c \"cyan,magenta\" \"vite\" \"wait-on http://localhost:5173 && node_modules\\\\electron\\\\dist\\\\electron.exe .\"",
-    "build":         "vite build",
-    "start":         "node server.js",
-    "auth":          "node auth.js"
+    "start":   "cross-env NODE_ENV=development concurrently -n \"vite,electron\" -c \"cyan,magenta\" \"vite\" \"wait-on http://localhost:5173 && node_modules\\\\electron\\\\dist\\\\electron.exe .\"",
+    "build":   "vite build",
+    "auth":    "node auth.js"
   },
   "dependencies": {
     "date-fns": "^4.1.0",
