@@ -19,6 +19,13 @@ const ACCOUNT_FILE = path.join(app.getPath('userData'), 'x-account.json');
 process.env.SESSION_FILE  = SESSION_FILE;
 process.env.ACCOUNT_FILE  = ACCOUNT_FILE;
 
+// ── Playwright browser path ───────────────────────────────────────────────────
+// In the packaged app the Chromium bundle lives in resources/playwright-browsers.
+// In dev, leave unset so Playwright uses its default system cache.
+if (!isDev) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(process.resourcesPath, 'playwright-browsers');
+}
+
 // ── Start the Express + Playwright backend ────────────────────────────────────
 const net = require('net');
 function startServerIfNeeded() {
