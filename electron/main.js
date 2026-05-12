@@ -6,16 +6,18 @@ const fs   = require('fs');
 
 const isDev = process.env.NODE_ENV === 'development';
 
-// ── Session file path ─────────────────────────────────────────────────────────
+// ── Session + account file paths ──────────────────────────────────────────────
 // Saved in the OS app-data dir so it's user-scoped and not world-readable.
 // In dev, fall back to the legacy path if it already exists there.
 const LEGACY_SESSION = 'C:\\Users\\yotam\\Desktop\\Auto-X\\session.json';
-const SESSION_FILE = (() => {
+const SESSION_FILE  = (() => {
   if (isDev && fs.existsSync(LEGACY_SESSION)) return LEGACY_SESSION;
   return path.join(app.getPath('userData'), 'x-session.json');
 })();
+const ACCOUNT_FILE = path.join(app.getPath('userData'), 'x-account.json');
 // Expose to server.js (required after this point)
-process.env.SESSION_FILE = SESSION_FILE;
+process.env.SESSION_FILE  = SESSION_FILE;
+process.env.ACCOUNT_FILE  = ACCOUNT_FILE;
 
 // ── Start the Express + Playwright backend ────────────────────────────────────
 const net = require('net');
@@ -59,6 +61,7 @@ function registerAuthHandlers() {
 
   ipcMain.handle('auth:signout', () => {
     try { fs.unlinkSync(SESSION_FILE); } catch { /* already gone */ }
+    try { fs.unlinkSync(ACCOUNT_FILE); } catch { /* already gone */ }
     return { ok: true };
   });
 
@@ -103,15 +106,38 @@ function registerAuthHandlers() {
         settled = true;
 
         if (loggedIn) {
-          // Grab all cookies from the auth partition
+          // ── Extract handle from the live page DOM ───────────────
+          // X renders the logged-in handle in the sidebar account-switcher.
+          // Scan every <span> for the @handle pattern — works regardless of
+          // which page the auth window landed on after login.
+          let handle = null;
+          try {
+            handle = await authWin.webContents.executeJavaScript(`
+              (() => {
+                // Prefer the account-switcher button which always shows @handle
+                const switcher = document.querySelectorAll(
+                  '[data-testid="SideNav_AccountSwitcher_Button"] span'
+                );
+                for (const s of switcher) {
+                  const t = s.textContent.trim();
+                  if (/^@[A-Za-z0-9_]{1,15}$/.test(t)) return t;
+                }
+                // Fallback: scan all spans
+                for (const s of document.querySelectorAll('span')) {
+                  const t = s.textContent.trim();
+                  if (/^@[A-Za-z0-9_]{1,15}$/.test(t)) return t;
+                }
+                return null;
+              })()
+            `);
+          } catch { /* page may have navigated away — handle stays null */ }
+
+          // ── Save Playwright storageState (owner-read/write only) ─
           const all = await authPartition.cookies.get({});
           const relevant = all.filter(c =>
             c.domain.includes('x.com') || c.domain.includes('twitter.com')
           );
-
-          // Electron sameSite → Playwright sameSite
           const sameSiteMap = { strict: 'Strict', lax: 'Lax', no_restriction: 'None' };
-
           const cookies = relevant.map(c => ({
             name:     c.name,
             value:    c.value,
@@ -123,12 +149,14 @@ function registerAuthHandlers() {
             sameSite: sameSiteMap[c.sameSite] || 'None',
           }));
 
-          // Write Playwright storageState
           const dir = path.dirname(SESSION_FILE);
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
           fs.writeFileSync(SESSION_FILE, JSON.stringify({ cookies, origins: [] }, null, 2), {
-            mode: 0o600, // owner-read/write only
+            mode: 0o600,
           });
+
+          // ── Persist account metadata ────────────────────────────
+          fs.writeFileSync(ACCOUNT_FILE, JSON.stringify({ handle }, null, 2));
         }
 
         if (!authWin.isDestroyed()) authWin.close();

@@ -4,8 +4,9 @@ const path  = require('path');
 const fs    = require('fs');
 
 const app          = express();
-// Path set by electron/main.js via env var; falls back to legacy dev path
+// Paths set by electron/main.js via env vars; fall back to legacy dev paths
 const SESSION_FILE = process.env.SESSION_FILE || 'C:\\Users\\yotam\\Desktop\\Auto-X\\session.json';
+const ACCOUNT_FILE = process.env.ACCOUNT_FILE || null;
 const DIST_DIR     = path.join(__dirname, 'dist');
 
 app.use(express.json({ limit: '10mb' }));
@@ -17,7 +18,12 @@ let activeBrowser = null;
 
 // ── Health / session check ───────────────────────────────────
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, hasSession: fs.existsSync(SESSION_FILE) });
+  const hasSession = fs.existsSync(SESSION_FILE);
+  let handle = null;
+  if (ACCOUNT_FILE && fs.existsSync(ACCOUNT_FILE)) {
+    try { handle = JSON.parse(fs.readFileSync(ACCOUNT_FILE, 'utf8')).handle; } catch { /* ignore */ }
+  }
+  res.json({ ok: true, hasSession, handle });
 });
 
 // ── Schedule endpoint (SSE) ──────────────────────────────────

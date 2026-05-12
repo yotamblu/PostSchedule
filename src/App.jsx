@@ -203,8 +203,8 @@ function PostCard({ post, time, index, total, status, errorMsg, animDelay }) {
 }
 
 // ── Auth Panel ───────────────────────────────────────────────
-function AuthPanel({ hasSession, onAuthDone }) {
-  const [authState, setAuthState] = useState('idle'); // idle | opening | done | failed
+function AuthPanel({ hasSession, handle, onAuthDone }) {
+  const [authState, setAuthState] = useState('idle');
 
   const handleSignIn = async () => {
     if (!window.electronAPI?.startAuth) return;
@@ -212,7 +212,7 @@ function AuthPanel({ hasSession, onAuthDone }) {
     const result = await window.electronAPI.startAuth();
     if (result?.ok) {
       setAuthState('done');
-      onAuthDone(true);
+      onAuthDone();
     } else {
       setAuthState('idle');
     }
@@ -220,16 +220,18 @@ function AuthPanel({ hasSession, onAuthDone }) {
 
   const handleSignOut = async () => {
     await window.electronAPI?.signOut();
-    onAuthDone(false);
+    onAuthDone();
   };
 
-  if (hasSession === null) return null; // still loading
+  if (hasSession === null) return null;
 
   if (hasSession) {
     return (
       <div className="auth-panel auth-panel-ok">
         <span className="auth-ok-dot" />
-        <span className="auth-ok-label">Connected to X</span>
+        <span className="auth-ok-label">
+          {handle ? handle : 'Connected to X'}
+        </span>
         <button className="auth-signout-btn" onClick={handleSignOut}>Sign out</button>
       </div>
     );
@@ -269,6 +271,7 @@ export default function App() {
   const [statuses,     setStatuses]     = useState([]);
   const [errorMsgs,    setErrorMsgs]    = useState([]);
   const [hasSession,   setHasSession]   = useState(null);
+  const [handle,       setHandle]       = useState(null);
   const [scheduling,   setScheduling]   = useState(false);
   const [schedDone,    setSchedDone]    = useState(false);
   const [schedError,   setSchedError]   = useState('');
@@ -284,8 +287,8 @@ export default function App() {
   const refreshSession = useCallback(() => {
     fetch('/api/health')
       .then(r => r.json())
-      .then(d => setHasSession(d.hasSession))
-      .catch(() => setHasSession(false));
+      .then(d => { setHasSession(d.hasSession); setHandle(d.handle || null); })
+      .catch(() => { setHasSession(false); setHandle(null); });
   }, []);
 
   useEffect(() => { refreshSession(); }, [refreshSession]);
@@ -409,7 +412,7 @@ export default function App() {
         </header>
 
         {/* Auth panel */}
-        <AuthPanel hasSession={hasSession} onAuthDone={refreshSession} />
+        <AuthPanel hasSession={hasSession} handle={handle} onAuthDone={refreshSession} />
 
         {/* Input Panel */}
         <div className="input-panel">
