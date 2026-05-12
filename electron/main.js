@@ -63,16 +63,53 @@ async function createWindow() {
 
   win.once('ready-to-show', () => win.show());
 
+  const appURL = isDev ? 'http://localhost:5173' : null;
+
   if (isDev) {
     try {
-      await waitForVite('http://localhost:5173');
+      await waitForVite(appURL);
     } catch (e) {
       console.error('[Electron] Vite did not start in time:', e.message);
     }
-    win.loadURL('http://localhost:5173');
+    win.loadURL(appURL);
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // ── Block any navigation away from the app ────────────────
+  // Vite's HMR WebSocket can drop when Playwright's Chromium
+  // launches alongside Electron, causing a blank reconnect screen.
+  // Intercept and reload instead.
+  win.webContents.on('will-navigate', (event, url) => {
+    const isAppURL = isDev
+      ? url.startsWith('http://localhost:5173')
+      : url.startsWith('file://');
+    if (!isAppURL) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
+  // If the page fails to load (e.g. HMR dropped), reload after 1s
+  win.webContents.on('did-fail-load', (_e, code, _desc, url) => {
+    if (code === -3) return; // -3 = aborted, harmless
+    console.log(`[Electron] Page failed to load (${code}), reloading…`);
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        isDev ? win.loadURL(appURL) : win.loadFile(path.join(__dirname, '../dist/index.html'));
+      }
+    }, 1000);
+  });
+
+  // If the renderer crashes, reload
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[Electron] Renderer gone:', details.reason);
+    if (!win.isDestroyed()) {
+      setTimeout(() => {
+        isDev ? win.loadURL(appURL) : win.loadFile(path.join(__dirname, '../dist/index.html'));
+      }, 500);
+    }
+  });
 
   // Open target="_blank" links in the system browser
   win.webContents.setWindowOpenHandler(({ url }) => {
