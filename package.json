@@ -4,34 +4,34 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "start":         "cross-env NODE_ENV=development concurrently -n \"vite,electron\" -c \"cyan,magenta\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "build":         "vite build",
-    "auth":          "node auth.js",
+    "start": "cross-env NODE_ENV=development concurrently -n \"vite,electron\" -c \"cyan,magenta\" \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build",
+    "auth": "node auth.js",
     "pack:browsers": "cross-env PLAYWRIGHT_BROWSERS_PATH=./playwright-browsers node node_modules/playwright/cli.js install chromium",
-    "dist":          "npm run build && npm run pack:browsers && electron-builder --win --x64",
-    "dist:mac":      "npm run build && npm run pack:browsers && electron-builder --mac",
-    "dist:all":      "npm run build && npm run pack:browsers && electron-builder --win --x64 --mac"
+    "dist": "npm run build && npm run pack:browsers && electron-builder --win --x64",
+    "dist:mac": "npm run build && npm run pack:browsers && electron-builder --mac",
+    "dist:all": "npm run build && npm run pack:browsers && electron-builder --win --x64 --mac"
   },
   "dependencies": {
-    "date-fns":   "^4.1.0",
-    "express":    "^4.19.2",
+    "date-fns": "^4.1.0",
+    "express": "^4.19.2",
     "playwright": "^1.44.0",
-    "react":      "^18.3.1",
-    "react-dom":  "^18.3.1"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
-    "concurrently":         "^8.2.2",
-    "cross-env":            "^10.1.0",
-    "electron":             "^42.0.1",
-    "electron-builder":     "^25.1.8",
-    "vite":                 "^5.2.12",
-    "wait-on":              "^9.0.10"
+    "concurrently": "^8.2.2",
+    "cross-env": "^10.1.0",
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1",
+    "vite": "^5.2.12",
+    "wait-on": "^9.0.10"
   },
   "build": {
-    "appId":       "com.yotamblu.postschedule",
+    "appId": "com.yotamblu.postschedule",
     "productName": "PostSchedule",
-    "copyright":   "Copyright © 2026 PostSchedule",
+    "copyright": "Copyright © 2026 PostSchedule",
     "asar": true,
     "asarUnpack": [
       "node_modules/playwright/**/*",
@@ -53,27 +53,33 @@
     "extraResources": [
       {
         "from": "playwright-browsers",
-        "to":   "playwright-browsers",
-        "filter": ["**/*"]
+        "to": "playwright-browsers",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "public/logo.png"
     },
     "nsis": {
-      "oneClick":                true,
-      "perMachine":              false,
-      "createDesktopShortcut":   true,
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName":            "PostSchedule"
+      "shortcutName": "PostSchedule"
     },
     "mac": {
-      "target": [
-        { "target": "dmg",  "arch": ["x64", "arm64"] },
-        { "target": "zip",  "arch": ["x64", "arm64"] }
-      ],
-      "icon":     "public/logo.png",
+      "target": ["dmg", "zip"],
+      "icon": "public/logo.png",
       "category": "public.app-category.productivity"
     },
     "dmg": {
