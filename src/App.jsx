@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
+// In the packaged app the page loads from file:// so relative fetch('/api/...')
+// fails. Detect and use the full server URL instead.
+const API = window.location.protocol === 'file:' ? 'http://localhost:3001' : '';
+
 // ── Date helpers ─────────────────────────────────────────────
 function localDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -285,7 +289,7 @@ export default function App() {
   const cardsRef = useRef(null);
 
   const refreshSession = useCallback(() => {
-    fetch('/api/health')
+    fetch(`${API}/api/health`)
       .then(r => r.json())
       .then(d => { setHasSession(d.hasSession); setHandle(d.handle || null); })
       .catch(() => { setHasSession(false); setHandle(null); });
@@ -336,7 +340,7 @@ export default function App() {
     setTimeout(() => cardsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
 
     try {
-      const res = await fetch('/api/schedule', {
+      const res = await fetch(`${API}/api/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
