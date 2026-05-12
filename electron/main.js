@@ -26,12 +26,27 @@ function startServerIfNeeded() {
 }
 startServerIfNeeded();
 
+// ── Wait for Vite dev server then load ──────────────────────
+function waitForVite(url, retries = 30, interval = 500) {
+  return new Promise((resolve, reject) => {
+    const http = require('http');
+    let attempts = 0;
+    const try_ = () => {
+      http.get(url, () => resolve()).on('error', () => {
+        if (++attempts >= retries) return reject(new Error('Vite never started'));
+        setTimeout(try_, interval);
+      });
+    };
+    try_();
+  });
+}
+
 // ── Create the main window ───────────────────────────────────
-function createWindow() {
+async function createWindow() {
   const win = new BrowserWindow({
-    width:    1160,
-    height:   860,
-    minWidth: 860,
+    width:     1160,
+    height:    860,
+    minWidth:  860,
     minHeight: 620,
     title: 'PostSchedule',
     icon: path.join(__dirname, '../public/logo.png'),
@@ -41,19 +56,25 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
-    // Remove default menu bar
     autoHideMenuBar: true,
+    // Show window only once content is ready — prevents the blank flash
+    show: false,
   });
 
+  win.once('ready-to-show', () => win.show());
+
   if (isDev) {
-    // In dev: load Vite dev server (which proxies /api → localhost:3001)
+    try {
+      await waitForVite('http://localhost:5173');
+    } catch (e) {
+      console.error('[Electron] Vite did not start in time:', e.message);
+    }
     win.loadURL('http://localhost:5173');
   } else {
-    // In production: load the built index.html
     win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  // Open all <a target="_blank"> links in the system browser, not a new Electron window
+  // Open target="_blank" links in the system browser
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };

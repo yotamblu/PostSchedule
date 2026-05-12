@@ -8,17 +8,42 @@ function nonRoundMinute() {
 }
 
 function buildSchedule(n) {
-  const MAX = 23 * 60 + 30;
-  const times = [];
-  let cur = (3 + Math.floor(Math.random() * 2)) * 60 + nonRoundMinute();
-  times.push(cur);
-  let truncated = false;
-  for (let i = 1; i < n; i++) {
-    cur += (2 + Math.floor(Math.random() * 3)) * 60 + nonRoundMinute();
-    if (cur > MAX) { truncated = true; break; }
-    times.push(cur);
+  const MAX = 23 * 60 + 30; // 23:30
+
+  // Start between 03:00 and 05:00 with a non-round minute
+  const start = (3 + Math.floor(Math.random() * 2)) * 60 + nonRoundMinute();
+
+  if (n === 1) return { times: [start] };
+
+  const totalSpan = MAX - start;
+
+  // Generate n-1 random weights (0.5–1.5 range = up to ±33% variation per gap)
+  // then normalise so they sum exactly to totalSpan.
+  // This guarantees every post fits while still looking organic.
+  const weights = Array.from({ length: n - 1 }, () => 0.5 + Math.random());
+  const weightSum = weights.reduce((a, b) => a + b, 0);
+  const gaps = weights.map(w => (w / weightSum) * totalSpan);
+
+  const times = [start];
+  let cursor = start;
+
+  for (let i = 0; i < n - 1; i++) {
+    cursor += gaps[i];
+    let t = Math.round(cursor);
+
+    // Nudge the minute portion to be non-round (not a multiple of 5)
+    if (t % 60 % 5 === 0) t += 1 + Math.floor(Math.random() * 4);
+
+    // Keep strictly increasing and within the window
+    const prev = times[times.length - 1];
+    if (t <= prev) t = prev + 1;
+    t = Math.min(t, MAX);
+
+    times.push(t);
+    cursor = t;
   }
-  return { times, truncated, fitted: times.length };
+
+  return { times };
 }
 
 function fmt12(m) {
@@ -152,7 +177,6 @@ export default function App() {
   const [scheduling,  setScheduling]  = useState(false);
   const [schedDone,   setSchedDone]   = useState(false);
   const [schedError,  setSchedError]  = useState('');
-  const [truncWarn,   setTruncWarn]   = useState('');
   const cardsRef = useRef(null);
 
   // ── Check session on mount ──
@@ -169,33 +193,23 @@ export default function App() {
 
   // ── Generate schedule ──
   const generate = useCallback((postList) => {
-    const { times: t, truncated, fitted } = buildSchedule(postList.length);
+    const { times: t } = buildSchedule(postList.length);
     setPosts(postList);
     setTimes(t);
     setStatuses(postList.map(() => 'idle'));
     setErrorMsgs(postList.map(() => ''));
-    setTruncWarn(
-      truncated
-        ? `Only ${fitted} of ${postList.length} posts fit before 11:30 PM. ${postList.length - fitted} skipped.`
-        : ''
-    );
     return t;
   }, []);
 
   // ── Regenerate (times only) ──
   const handleRegenerate = useCallback(() => {
     if (!posts.length) return;
-    const { times: t, truncated, fitted } = buildSchedule(posts.length);
+    const { times: t } = buildSchedule(posts.length);
     setTimes(t);
     setStatuses(posts.map(() => 'idle'));
     setErrorMsgs(posts.map(() => ''));
     setSchedDone(false);
     setSchedError('');
-    setTruncWarn(
-      truncated
-        ? `Only ${fitted} of ${posts.length} posts fit before 11:30 PM. ${posts.length - fitted} skipped.`
-        : ''
-    );
   }, [posts]);
 
   // ── Schedule all via Playwright ──
@@ -349,12 +363,6 @@ export default function App() {
           )}
         </div>
 
-        {/* ── Truncation warning ── */}
-        {truncWarn && (
-          <div className="banner banner-warn">
-            <span>⚠</span><span>{truncWarn}</span>
-          </div>
-        )}
 
         {/* ── Scheduling progress ── */}
         {scheduling && totalCount > 0 && (
