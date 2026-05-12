@@ -161,15 +161,26 @@ async function openAndPrefill(ctx, text, totalMins, autoSchedule = false, schedu
   await page.locator('#SELECTOR_2').selectOption(day);    // Day:   "1"–"31"
   await page.locator('#SELECTOR_3').selectOption(year);   // Year:  "2026"–"2028"
 
-  // ── Set time ─────────────────────────────────────────────
-  // Use the 24-hour value directly — X shows either a 12h or 24h hour select
-  // depending on the account's locale.  In 24h mode SELECTOR_6 (AM/PM) is absent.
-  await page.locator('#SELECTOR_4').selectOption(String(h24));   // Hour:   "0"–"23"
+  // ── Detect 12h vs 24h format ─────────────────────────────
+  // SELECTOR_6 is the AM/PM select — it only exists in 12-hour mode.
+  // We check this BEFORE setting the hour so we know which range to use.
+  const ampmCount = await page.locator('#SELECTOR_6').count();
+  const is12h = ampmCount > 0;
+
+  // ── Set hour ─────────────────────────────────────────────
+  if (is12h) {
+    // 12h: convert 0–23 → 1–12  (midnight=12, noon=12)
+    const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+    await page.locator('#SELECTOR_4').selectOption(String(h12));
+  } else {
+    // 24h: use raw value 0–23
+    await page.locator('#SELECTOR_4').selectOption(String(h24));
+  }
+
   await page.locator('#SELECTOR_5').selectOption(String(mins));  // Minute: "0"–"59"
 
-  // Only touch AM/PM selector if it actually exists (12-hour mode accounts)
-  const ampmCount = await page.locator('#SELECTOR_6').count();
-  if (ampmCount > 0) {
+  // ── Set AM/PM (12h accounts only) ────────────────────────
+  if (is12h) {
     const ampm = h24 < 12 ? 'am' : 'pm';
     await page.locator('#SELECTOR_6').selectOption(ampm);
   }
